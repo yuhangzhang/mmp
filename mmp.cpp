@@ -6,7 +6,7 @@ mmp::mmp(int width,int height,int numlabel)
 	_height=height;
 	_numlabel=numlabel;
 
-
+	currentdual = -DBL_MAX;
 
 
 	return;
@@ -174,6 +174,7 @@ void mmp::enumerateMessage(int k)
 
 	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[k+1].firstTerm();it!=cliquek[k+1].lastTerm();it++)
 	{		
+		printf("K-%d %d %d\n",it->first[0],it->first[1],it->first[2]);
 		//parallel_for(int(0),_k,[&](int i)
 		for(int i=0;i<k+1;i++)
 		{
@@ -183,21 +184,30 @@ void mmp::enumerateMessage(int k)
 			{
 				if(j!=i) vars.push_back(it->first[j]);
 			}
-			cliquek_1tok[k].addTerm(vars,1);
+
+			printf("  %d %d at %d\n",vars[0],vars[1],i);
+
+			if(cliquek_1tok[k].getTerm(vars)==0)
+			{
+				cliquek_1tok[k].editTerm(vars,new vector<homogenousPosiTerm*>);
+				cliquek_1tok_miss[k].editTerm(vars, new vector<int>);
+			}
+			cliquek_1tok[k].getTerm(vars)[0].push_back(it->second);
+			cliquek_1tok_miss[k].getTerm(vars)[0].push_back(i);
 		}//);
 
 	}
 
 	//printf("here\n");
 
-	for(poly< int >::TERMS::iterator it=cliquek_1tok[k].firstTerm();it!=cliquek_1tok[k].lastTerm();it++)
+	for(poly< vector<homogenousPosiTerm*>* >::TERMS::iterator it=cliquek_1tok[k].firstTerm();it!=cliquek_1tok[k].lastTerm();it++)
 	{
 		//if(it->second>1) 
 			cliquek[k].editTerm(it->first, new homogenousPosiTerm(k,_numlabel));
 		//else it->second=0;
 	}
 
-	cliquek_1tok[k].clean();
+	//cliquek_1tok[k].clean();
 
 
 	printf("%d %d-clique in total\n",cliquek[k].numTerm(),k);
@@ -276,7 +286,8 @@ void mmp::enumerateClique(int k)
 	_k = k;
 
 	cliquek = new poly< homogenousPosiTerm* >[k+1];
-	cliquek_1tok = new poly< int >[k];
+	cliquek_1tok = new poly< vector<homogenousPosiTerm*>* >[k];
+	cliquek_1tok_miss = new poly<vector<int>*>[k];
 
 	poly< homogenousPosiTerm* > *cliques = new poly< homogenousPosiTerm* >[_width];
 
@@ -323,10 +334,7 @@ void mmp::plotcliquek(int k)
 	return;
 }
 
-
-
-
-void mmp::optimize()
+void mmp::optimize_seq()
 {
 	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliqueraw.firstTerm();
 		it!=cliqueraw.lastTerm();it++)
@@ -344,15 +352,203 @@ void mmp::optimize()
 		feedback(i);
 	}
 
-	for(int i=0;i<500;i++)
+	for(int i=0;i<10000;i++)
 	{
 printf("ITERATION %d ======================================\n",i);
-		//plotcliquek(2);
-		demand(_k);
-		//plotcliquek(1);
-		//plotcliquek(2);
-		feedback(_k);
+		
 
+		for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[_k].firstTerm();it!=cliquek[_k].lastTerm();it++)
+		{
+			vector<int> label;
+			double stepsize=it->second[0].getLabel(label);
+			//if(stepsize<0.001) stepsize=0.001;
+			//it->second[0].changeCost(label,stepsize);
+
+			for(int i=0;i<_k;i++) printf("%d ",it->first[i]);
+			printf(": ");
+			for(int i=0;i<_k;i++) printf("%d ",label[i]);
+			printf("\n");
+		}
+		plotcliquek(_k);
+	
+		for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[_k].firstTerm();it!=cliquek[_k].lastTerm();it++)
+		{
+			vector<int> label;
+			double stepsize=it->second[0].getLabel(label);
+
+for(int i=0;i<_k;i++) printf("%d ",it->first[i]);
+printf(": ");
+for(int i=0;i<_k;i++) printf("%d ",label[i]);
+printf("\n");
+
+			for(int i=0;i<_k;i++)
+			{
+				vector<int> vars;
+				vector<int> sublab;
+				vars.reserve(_k-1);
+				sublab.reserve(_k-1);
+
+				for(int j=0;j<_k;j++)
+				{
+					if(j!=i) 
+					{
+						vars.push_back(it->first[j]);
+						sublab.push_back(label[j]);
+					}
+				}
+
+				cliquek[_k-1].getTerm(vars)[0].changeCost(sublab,-stepsize/_k);
+
+				vector<int> tlabel = label;
+				for(int j=0;j<_numlabel;j++)
+				{
+					tlabel[i]=j;
+					it->second[0].changeCost(tlabel,stepsize/_k);
+				}
+			}
+
+			feedback(_k);
+			//printf("local done\n");
+			//demand(_k);
+			//feedback(_k);
+		}
+
+double tempd = currentdual;
+printf("dual=%e %e\n",currentdual,tempd-dualvalue());
+ 
+	}
+
+
+
+	return;
+}
+
+void mmp::optimize_it()
+{
+
+	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliqueraw.firstTerm();
+		it!=cliqueraw.lastTerm();it++)
+	{
+		vector<int> index = it->first;
+
+		poly<double> temp;
+		it->second[0].getCosts(temp);
+		cliquek[index.size()].getTerm(index)[0].changeCosts(temp);
+	}
+
+
+
+	plotcliquek(1);
+	for(int i=2;i<=_k;i++)
+	{
+		printf("i=%d\n",i);
+		feedback(i);
+		plotcliquek(i);
+	}
+
+
+
+	for(int i=0;i<100000;i++)
+	{
+//if(i%10000==0)
+//{
+//printf("ITERATION %d ======================================\n",i);
+//plotcliquek(3);
+//}
+		printf("i=%d\n",i);
+		plotcliquek(_k);
+		instant_top();
+		//plotcliquek(_k-1);
+		//plotcliquek(_k);
+
+		//getchar();
+
+	double tempd = currentdual;
+
+	printf("dual=%e improvement=%e\n",currentdual,dualvalue()-tempd);
+	if(tempd-dualvalue()>0) getchar();
+	}
+	return;
+}
+
+void mmp::optimize()
+{
+	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliqueraw.firstTerm();
+		it!=cliqueraw.lastTerm();it++)
+	{
+		vector<int> index = it->first;
+
+		poly<double> temp;
+		it->second[0].getCosts(temp);
+		cliquek[index.size()].getTerm(index)[0].changeCosts(temp);
+	}
+
+	plotcliquek(1);
+	for(int i=2;i<=_k;i++)
+	{
+		printf("i=%d\n",i);
+		feedback(i);
+		plotcliquek(i);
+	}
+
+	for(int i=0;i<10000;i++)
+	{
+//if(i%10000==0)
+//{
+//printf("ITERATION %d ======================================\n",i);
+//plotcliquek(3);
+//}
+		//plotcliquek(_k);
+		demand(_k);
+		//plotcliquek(_k-1);
+		//plotcliquek(_k);
+		feedback(_k);
+		//getchar();
+
+double tempd = currentdual;
+
+printf("dual=%e %e\n",currentdual,tempd-dualvalue());
+if(tempd-dualvalue()>0) getchar();
+	}
+
+
+
+	return;
+}
+
+void mmp::optimize_deep()
+{
+	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliqueraw.firstTerm();
+		it!=cliqueraw.lastTerm();it++)
+	{
+		vector<int> index = it->first;
+
+		poly<double> temp;
+		it->second[0].getCosts(temp);
+		cliquek[index.size()].getTerm(index)[0].changeCosts(temp);
+	}
+
+	plotcliquek(1);
+	for(int i=2;i<=_k;i++)
+	{
+		printf("i=%d\n",i);
+		feedback(i);
+		plotcliquek(i);
+	}
+
+	for(int i=0;i<10000;i++)
+	{
+//if(i%10000==0)
+//{
+printf("ITERATION %d ======================================\n",i);
+//plotcliquek(3);
+//}
+		plotcliquek(_k);
+		//demand(_k);
+		//plotcliquek(_k-1);
+		//plotcliquek(_k);
+		//feedback(_k);
+		//getchar();
 		for(int j=_k;j>=2;j--)
 		{
 			demand(j);
@@ -361,13 +557,15 @@ printf("ITERATION %d ======================================\n",i);
 		{
 			feedback(j);
 		}
+
+double tempd = currentdual;
+printf("dual=%e improvement=%e\n",currentdual,tempd-dualvalue());
 	}
 
 
 
 	return;
 }
-
 void mmp::feedback(int k)
 {
 	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[k].firstTerm();it!=cliquek[k].lastTerm();it++)
@@ -386,6 +584,8 @@ void mmp::feedback(int k)
 
 			cliquek[k-1].getTerm(vars)[0].getCosts(tempp);
 
+
+
 			for(poly<double>::TERMS::iterator it2 = tempp.firstTerm();
 				it2!=tempp.lastTerm();it2++)
 			{
@@ -396,12 +596,13 @@ void mmp::feedback(int k)
 				for(int j=0;j<_numlabel;j++)
 				{
 					vars2[i] = j;
-					it->second[0].changeCost(vars2,it2->second/cliquek_1tok[k-1].getTerm(vars));
-//printf("==%d %d\n",vars2[0],vars2[1]);getchar();
+					it->second[0].changeCost(vars2,it2->second/cliquek_1tok[k-1].getTerm(vars)[0].size());
+					//printf("size=%d\n",cliquek_1tok[k-1].getTerm(vars)[0].size());getchar();
 				}
-
 				
 			}
+
+
 
 			//tempp=tempp*-1;
 			//cliquek[k-1].getTerm(vars)[0].changeCosts(tempp);
@@ -410,8 +611,104 @@ void mmp::feedback(int k)
 
 	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[k-1].firstTerm();it!=cliquek[k-1].lastTerm();it++)
 	{
-		it->second[0].setZero();
+		it->second[0].setResidual(0);
 	}
+
+	return;
+}
+
+void mmp::instant_top()
+{
+	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[_k].firstTerm();it!=cliquek[_k].lastTerm();it++)
+	{//for each t
+		vector<int> label;
+		double stepsize=it->second[0].getLabel(label);
+		//printf("stepsize= %e\n",stepsize);
+		//if(stepsize<0.001) stepsize=0.001;
+		//it->second[0].changeCost(label,stepsize);
+
+		//printf("label=%d %d\n",label[0],label[1])
+
+		for(int i=0;i<_k;i++) printf("%d ",it->first[i]);
+		printf(": ");
+		for(int i=0;i<_k;i++) printf("%d ",label[i]);
+		printf("\n");
+
+		for(int i=0;i<_k;i++)
+		{//for each s
+			vector<int> vars;
+			vector<int> sublab;
+			vars.reserve(_k-1);
+			sublab.reserve(_k-1);
+
+			for(int j=0;j<_k;j++)
+			{
+				if(j!=i) 
+				{
+					vars.push_back(it->first[j]);
+					sublab.push_back(label[j]);
+					//printf("v%d=l%d\n",vars.back(),sublab.back());
+				}
+				
+			}
+
+			////Es = Es + Mts
+			//cliquek[_k-1].getTerm(vars)[0].changeCost(sublab,-stepsize/_k);
+
+			////Et = Et - Mts
+			//vector<int> tlabel = label;
+			//for(int j=0;j<_numlabel;j++)
+			//{
+			//	tlabel[i]=j;
+			//	it->second[0].changeCost(tlabel,stepsize/_k);
+			//}
+			double message = stepsize;
+
+			vector<homogenousPosiTerm*> uncles = cliquek_1tok[_k-1].getTerm(vars)[0];
+
+			for(int k=0;k<uncles.size();k++)
+			{//for each t'
+				if(uncles[k]==it->second) continue;//skip youself
+				
+				if(message==0) break;//nothing left;
+
+				double margin = uncles[k][0].getmargin(sublab,cliquek_1tok_miss[_k-1].getTerm(vars)[0][k])/2;
+
+				if(margin==0) continue;
+				//printf("message=%e margin=%e\n",message,margin);
+
+				if(margin>=message)
+				{
+					uncles[k][0].changesubcost(sublab,cliquek_1tok_miss[_k-1].getTerm(vars)[0][k],-message);
+					message = 0;
+				}
+				else
+				{
+					message-=margin;
+					uncles[k][0].changesubcost(sublab,cliquek_1tok_miss[_k-1].getTerm(vars)[0][k],-margin);
+				}
+			//printf("one uncle\n");
+			//plotcliquek(_k);getchar();
+			}
+
+
+
+			if(message<stepsize)
+			{
+				vector<int> tlabel = label;
+				for(int j=0;j<_numlabel;j++)
+				{
+					tlabel[i]=j;
+					it->second[0].changeCost(tlabel,stepsize-message);
+				}
+			}
+		}
+
+
+	}
+ 
+
+
 
 	return;
 }
@@ -423,12 +720,14 @@ void mmp::demand(int k)
 	{
 		vector<int> label;
 		double stepsize=it->second[0].getLabel(label);
+		//printf("stepsize= %e\n",stepsize);
+		//if(stepsize<0.001) stepsize=0.001;
 		//it->second[0].changeCost(label,stepsize);
 
-		for(int i=0;i<k;i++) printf("%d ",it->first[i]);
-		printf(": ");
-		for(int i=0;i<k;i++) printf("%d ",label[i]);
-		printf("\n");
+		//for(int i=0;i<k;i++) printf("%d ",it->first[i]);
+		//printf(": ");
+		//for(int i=0;i<k;i++) printf("%d ",label[i]);
+		//printf("\n");
 
 		for(int i=0;i<k;i++)
 		{
@@ -465,3 +764,15 @@ void mmp::demand(int k)
 	return;
 }
 
+double mmp::dualvalue()
+{
+	double total=0;
+	for(poly< homogenousPosiTerm* >::TERMS::iterator it=cliquek[_k].firstTerm();it!=cliquek[_k].lastTerm();it++)
+	{
+		total+=it->second[0].getoptimum();
+	}
+
+	currentdual = total;
+
+	return total;
+}

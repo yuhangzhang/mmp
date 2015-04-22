@@ -15,17 +15,27 @@ public:
 	void enumerateMessage(int k);
 	void plotcliquek(int k);
 
+	void optimize_it();//instant top
 	void optimize();
+	void optimize_deep();
+	void optimize_seq();
+	double dualvalue();
+
+	void instant_top();//
 
 private:
+	double currentdual;
 	poly< homogenousPosiTerm* > cliqueraw;
 	poly< homogenousPosiTerm* > *cliquek;
 
 	void feedback(int k);//k-1 feed all it has evenly to k
 	void demand(int k); //k ask k-1 for what it needs.
 	
-	poly< int > *cliquek_1tok;//how many k-clique share this k-1 clique
-	
+ 
+
+	poly< vector<homogenousPosiTerm*>* > *cliquek_1tok;//what k-clique share this k-1 clique
+	poly< vector<int>* > *cliquek_1tok_miss;
+
 	int _k;
 	int _width;
 	int _height;
